@@ -558,8 +558,17 @@ ble_hs_resolv_list_add(uint8_t *cmdbuf)
     addr_type = cmdbuf[0];
     ident_addr = cmdbuf + 1;
 
-    if (ble_hs_is_on_resolv_list(ident_addr, addr_type)) {
-        return BLE_HS_EINVAL;
+    // There might be an existing entry - if so, delete it.
+    // Note: using ble_hs_resolv_list_rmv does not work,
+    // because that also updates some other datastructure and fails at boot.
+    // ble_hs_resolv_list_rmv(ident_addr, addr_type);
+    int position = ble_hs_is_on_resolv_list(ident_addr, addr_type);
+    if (position) {
+        memmove(&g_ble_hs_resolv_list[position],
+                &g_ble_hs_resolv_list[position + 1],
+                (g_ble_hs_resolv_data.rl_cnt - position) * sizeof (struct
+                        ble_hs_resolv_entry));
+        --g_ble_hs_resolv_data.rl_cnt;
     }
 
     rl = &g_ble_hs_resolv_list[g_ble_hs_resolv_data.rl_cnt];
