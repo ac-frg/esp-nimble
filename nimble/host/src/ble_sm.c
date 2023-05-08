@@ -1752,7 +1752,7 @@ err:
 }
 
 static bool
-ble_sm_verify_auth_requirements(uint8_t authreq)
+ble_sm_verify_auth_requirements(uint8_t authreq, uint8_t io_cap)
 {
     /* For now we check only SC only mode. I.e.: when remote indicates
      * to not support SC pairing, let us make sure legacy pairing is supported
@@ -1762,6 +1762,28 @@ ble_sm_verify_auth_requirements(uint8_t authreq)
         if (MYNEWT_VAL(BLE_SM_LEGACY) == 0) {
             return false;
         }
+    }
+
+    /* If we require MITM protection... */
+    if(ble_hs_cfg.sm_mitm) {
+        // .. don't accept pairing to a device that doesn't support it */
+        if(!(authreq & BLE_SM_PAIR_AUTHREQ_MITM)) {
+            MODLOG_DFLT(ERROR, "Peer doesn't support MITM protection");
+            return false;
+        }
+
+        // .. there should be minimal IO capability to support it
+        if(io_cap == BLE_SM_IO_CAP_NO_IO || io_cap >= BLE_SM_IO_CAP_RESERVED) {
+            MODLOG_DFLT(ERROR, "Peers io capability = %hhu, which doesn't support MITM protection", io_cap);
+            return false;
+        }
+
+        // .. idem for our own IO
+        if(ble_hs_cfg.sm_io_cap == BLE_SM_IO_CAP_NO_IO || ble_hs_cfg.sm_io_cap >= BLE_SM_IO_CAP_RESERVED) {
+            MODLOG_DFLT(ERROR, "Our io capability = %hhu, which doesn't support MITM protection", ble_hs_cfg.sm_io_cap);
+            return false;
+        }
+
     }
     return true;
 }
@@ -1849,7 +1871,7 @@ ble_sm_pair_req_rx(uint16_t conn_handle, struct os_mbuf **om,
         } else if (req->max_enc_key_size > BLE_SM_PAIR_KEY_SZ_MAX) {
             res->sm_err = BLE_SM_ERR_INVAL;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_INVAL);
-        } else if (!ble_sm_verify_auth_requirements(req->authreq)) {
+        } else if (!ble_sm_verify_auth_requirements(req->authreq, req->io_cap)) {
             res->sm_err = BLE_SM_ERR_AUTHREQ;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_AUTHREQ);
         } else {
@@ -1912,6 +1934,9 @@ ble_sm_pair_rsp_rx(uint16_t conn_handle, struct os_mbuf **om,
         } else if (rsp->max_enc_key_size > BLE_SM_PAIR_KEY_SZ_MAX) {
             res->sm_err = BLE_SM_ERR_INVAL;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_INVAL);
+        } else if (!ble_sm_verify_auth_requirements(rsp->authreq, rsp->io_cap)) {
+            res->sm_err = BLE_SM_ERR_AUTHREQ;
+            res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_AUTHREQ);
         } else {
             ble_sm_pair_cfg(proc);
 
