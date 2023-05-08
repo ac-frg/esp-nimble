@@ -1762,22 +1762,36 @@ err:
 }
 
 static bool
-ble_sm_verify_auth_requirements(uint8_t cmd)
+ble_sm_verify_auth_requirements(uint8_t authreq, uint8_t io_cap)
 {
     /* For now we check only SC only mode. I.e.: when remote indicates
      * to not support SC pairing, let us make sure legacy pairing is supported
      * on our side. If not, we can fail right away.
      */
-    if (!(cmd & BLE_SM_PAIR_AUTHREQ_SC)) {
+    if (!(authreq & BLE_SM_PAIR_AUTHREQ_SC)) {
         if (MYNEWT_VAL(BLE_SM_LEGACY) == 0) {
             return false;
         }
     }
-    /* Fail if Secure Connections level forces MITM protection and remote does not
-     * support it
-     */
-    if (MYNEWT_VAL(BLE_SM_SC_LVL) >= 3 && !(cmd & BLE_SM_PAIR_AUTHREQ_MITM)) {
-        return false;
+    /* Additional checks if Secure Connections level forces MITM protection */
+    if (MYNEWT_VAL(BLE_SM_SC_LVL) >= 3) {
+        /* Don't accept pairing to a device that doesn't support it */
+        if(!(authreq & BLE_SM_PAIR_AUTHREQ_MITM)) {
+            MODLOG_DFLT(ERROR, "Peer doesn't support MITM protection");
+            return false;
+        }
+
+        /* There should be minimal IO capability to support it */
+        if(io_cap == BLE_SM_IO_CAP_NO_IO || io_cap >= BLE_SM_IO_CAP_RESERVED) {
+            MODLOG_DFLT(ERROR, "Peer IO capability = %hhu, which doesn't support MITM protection", io_cap);
+            return false;
+        }
+
+        /* Idem for our own IO */
+        if(ble_hs_cfg.sm_io_cap == BLE_SM_IO_CAP_NO_IO || ble_hs_cfg.sm_io_cap >= BLE_SM_IO_CAP_RESERVED) {
+            MODLOG_DFLT(ERROR, "Our IO capability = %hhu, which doesn't support MITM protection", ble_hs_cfg.sm_io_cap);
+            return false;
+        }
     }
     return true;
 }
@@ -1874,7 +1888,7 @@ ble_sm_pair_req_rx(uint16_t conn_handle, struct os_mbuf **om,
             */
             res->sm_err = BLE_SM_ERR_ENC_KEY_SZ;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_ENC_KEY_SZ);
-        } else if (!ble_sm_verify_auth_requirements(req->authreq)) {
+        } else if (!ble_sm_verify_auth_requirements(req->authreq, req->io_cap)) {
             res->sm_err = BLE_SM_ERR_AUTHREQ;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_AUTHREQ);
         } else {
@@ -1943,7 +1957,7 @@ ble_sm_pair_rsp_rx(uint16_t conn_handle, struct os_mbuf **om,
             */
             res->sm_err = BLE_SM_ERR_ENC_KEY_SZ;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_ENC_KEY_SZ);
-        } else if (!ble_sm_verify_auth_requirements(rsp->authreq)) {
+        } else if (!ble_sm_verify_auth_requirements(rsp->authreq, rsp->io_cap)) {
             res->sm_err = BLE_SM_ERR_AUTHREQ;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_AUTHREQ);
         } else {
